@@ -4,7 +4,6 @@ import blue.origami.nez.ast.Tree;
 import blue.origami.nez.parser.Parser;
 import blue.origami.nez.parser.ParserOption;
 import blue.origami.nez.peg.Grammar;
-import blue.origami.nez.peg.LeftRecursionEliminator;
 import blue.origami.nez.peg.SourceGrammar;
 import blue.origami.util.OOption;
 
@@ -18,19 +17,19 @@ public class Okourin extends OCommand {
 		g.dump();
 		System.out.println();
 
-		LeftRecursionEliminator eliminator = options.newInstance(LeftRecursionEliminator.class);
-		eliminator.compute(g);
-		System.out.println("=== converted grammar ===");
-		g.dump();
-		System.out.println();
-
+		/*
+		 * LeftRecursionEliminator eliminator =
+		 * options.newInstance(LeftRecursionEliminator.class); eliminator.compute(g);
+		 * System.out.println("=== converted grammar ==="); g.dump();
+		 * System.out.println();
+		 */
 		Parser parser = new Parser(g.getStartProduction(), options);
 		parser.compile();
 		System.out.println("=== compiled grammar ===");
 		parser.getParserGrammar().dump();
 		System.out.println();
 
-		Tree<?> res = parser.parse("1-2-3");
+		Tree<?> res = parser.parse("1+2-3");
 		System.out.println(res.toString());
 	}
 }
