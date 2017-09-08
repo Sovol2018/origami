@@ -99,6 +99,16 @@ public class FunctionContext {
 			}
 			return new NameCode(this.name, this.seq, this.type, this.refLevel).setSource(s);
 		}
+
+		@Override
+		public String toString() {
+			return String.format("[%s, %s :: %s, %s]", this.name, this.seq, this.type, this.refLevel);
+		}
+
+		@Override
+		public void used(TEnv env) {
+
+		}
 	}
 
 }

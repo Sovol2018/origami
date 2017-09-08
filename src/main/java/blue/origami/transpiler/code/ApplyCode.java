@@ -9,7 +9,6 @@ import blue.origami.transpiler.TFmt;
 import blue.origami.transpiler.type.FuncTy;
 import blue.origami.transpiler.type.Ty;
 import blue.origami.transpiler.type.VarLogger;
-import blue.origami.transpiler.type.VarTy;
 import blue.origami.util.StringCombinator;
 
 public class ApplyCode extends CodeN {
@@ -29,13 +28,13 @@ public class ApplyCode extends CodeN {
 		this.args[0] = this.args[0].asType(env, Ty.tUntyped());
 		if (this.args[0] instanceof FuncRefCode) {
 			// ODebug.trace("switching to expr %s", this.args[0]);
-			String name = ((FuncRefCode) this.args[0]).name;
+			String name = ((FuncRefCode) this.args[0]).getName();
 			return new ExprCode(name, TArrays.ltrim(this.args)).asType(env, ret);
 		}
 
 		Ty firstType = this.args[0].getType();
-		if (firstType instanceof FuncTy) {
-			FuncTy funcType = (FuncTy) firstType;
+		if (firstType.isFunc()) {
+			FuncTy funcType = (FuncTy) firstType.real();
 			Ty[] p = funcType.getParamTypes();
 			if (p.length + 1 != this.args.length) {
 				throw new ErrorCode("mismatched parameter size %d %d", p.length, this.args.length);
@@ -46,7 +45,7 @@ public class ApplyCode extends CodeN {
 			this.setType(funcType.getReturnType());
 			return super.castType(env, ret);
 		}
-		if (firstType instanceof VarTy) {
+		if (firstType.isVar()) {
 			Ty[] p = new Ty[this.args.length - 1];
 			for (int i = 1; i < this.args.length; i++) {
 				this.args[i] = this.args[i].asType(env, Ty.tUntyped());

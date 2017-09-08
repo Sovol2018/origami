@@ -1,5 +1,6 @@
 package blue.origami.transpiler;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.function.Supplier;
@@ -15,7 +16,9 @@ import blue.origami.transpiler.code.TypeCode;
 import blue.origami.transpiler.rule.ParseRule;
 import blue.origami.transpiler.type.FuncTy;
 import blue.origami.transpiler.type.Ty;
+import blue.origami.transpiler.type.VarDomain;
 import blue.origami.transpiler.type.VarLogger;
+import blue.origami.transpiler.type.VarTy;
 import blue.origami.util.Handled;
 import blue.origami.util.ODebug;
 
@@ -328,13 +331,13 @@ interface TEnvApi {
 				Template tp = new CodeTemplate(name, ret, p, value);
 				env().add(name, tp);
 				tp.asFaulty(faulty);
-				tp.asFaulty(pure);
+				tp.asPure(pure);
 			} else {
 				Template tp = new CodeTemplate(name, ret, TArrays.emptyTypes, value);
 				env().add(name, tp);
 				env().add(key, tp);
 				tp.asFaulty(faulty);
-				tp.asFaulty(pure);
+				tp.asPure(pure);
 			}
 		}
 	}
@@ -386,23 +389,6 @@ interface TEnvApi {
 	default Ty checkType(String tsig) {
 		Ty ty = this.getType(tsig);
 		if (ty == null) {
-			if (tsig.endsWith("*")) {
-				ty = checkType(tsig.substring(0, tsig.length() - 1));
-				return Ty.tImList(ty);
-			}
-			if (tsig.endsWith("[]")) {
-				ty = checkType(tsig.substring(0, tsig.length() - 2));
-				return Ty.tList(ty);
-			}
-			if (tsig.endsWith("?")) {
-				ty = checkType(tsig.substring(0, tsig.length() - 1));
-				return Ty.tOption(ty);
-			}
-			if (tsig.endsWith("]")) {
-				int loc = tsig.indexOf('[');
-				ty = checkType(tsig.substring(loc + 1, tsig.length() - 1));
-				return Ty.tMonad(tsig.substring(0, loc), ty);
-			}
 			int loc = 0;
 			if ((loc = tsig.indexOf("->")) > 0) {
 				int loc2 = tsig.indexOf(',');
@@ -416,6 +402,23 @@ interface TEnvApi {
 					Ty ft = checkType(tsig.substring(0, loc));
 					return Ty.tFunc(tt, ft);
 				}
+			}
+			if (tsig.endsWith("*")) {
+				ty = checkType(tsig.substring(0, tsig.length() - 1));
+				return Ty.tImList(ty);
+			}
+			if (tsig.endsWith("[]")) {
+				ty = checkType(tsig.substring(0, tsig.length() - 2));
+				return Ty.tList(ty);
+			}
+			if (tsig.endsWith("?")) {
+				ty = checkType(tsig.substring(0, tsig.length() - 1));
+				return Ty.tOption(ty);
+			}
+			if (tsig.endsWith("]")) {
+				loc = tsig.indexOf('[');
+				ty = checkType(tsig.substring(loc + 1, tsig.length() - 1));
+				return Ty.tMonad(tsig.substring(0, loc), ty);
 			}
 			ty = getHiddenType(tsig);
 		}
@@ -432,8 +435,9 @@ interface TEnvApi {
 			hiddenMap.put("byte", Ty.tByte);
 			hiddenMap.put("char", Ty.tChar);
 			hiddenMap.put("int64", Ty.tInt64);
-			hiddenMap.put("a", Ty.tVar("a"));
-			hiddenMap.put("b", Ty.tVar("b"));
+			hiddenMap.put("a", VarDomain.var(0));
+			hiddenMap.put("b", new VarTy("b", 1));
+			hiddenMap.put("c", new VarTy("c", 2));
 		}
 		return hiddenMap.get(tsig);
 	}
@@ -544,15 +548,18 @@ interface TEnvApi {
 		String key = FuncTy.mapKey(fromTy, toTy);
 		Template tp = env.get(key, Template.class);
 		if (tp != null) {
+			// ODebug.trace("found %s => %s %s", fromTy, toTy, tp);
 			return tp;
 		}
 		tp = fromTy.findMapTo(env, toTy);
 		if (tp != null) {
+			// ODebug.trace("builtin %s => %s %s", fromTy, toTy, tp);
 			env.getTranspiler().add(key, tp);
 			return tp;
 		}
 		tp = toTy.findMapFrom(env, fromTy);
 		if (tp != null) {
+			// ODebug.trace("builtin %s => %s %s", fromTy, toTy, tp);
 			env.getTranspiler().add(key, tp);
 			return tp;
 		}
@@ -573,6 +580,31 @@ interface TEnvApi {
 			return cost;
 		}
 		return toTy.costMapFrom(env, fromTy);
+	}
+
+	public default List<Template> findTemplates(String name, int paramSize) {
+		List<Template> l = new ArrayList<>(8);
+		env().findList(name, Template.class, l, (tt) -> !tt.isExpired() && tt.getParamSize() == paramSize);
+		return l;
+	}
+
+	public default Code typeBody(String name, String[] pnames, Ty[] pats, Ty ret, VarDomain dom, Tree<?> body) {
+		boolean dyn = ret.hasVar();
+		final TEnv env = env().newEnv();
+		// final CodeTemplate tp = this.generator.newFuncTemplate(this, name,
+		// name, ret, pats);
+		// env.add(name, tp);
+		FunctionContext fcx = new FunctionContext();
+		env.add(FunctionContext.class, fcx);
+		for (int i = 0; i < pnames.length; i++) {
+			env.add(pnames[i], fcx.newVariable(pnames[i], pats[i]));
+		}
+		Code code0 = env.parseCode(env, body);
+		Code code = env.catchCode(() -> code0.asType(env, ret));
+		if (dyn) {
+			ret.toImmutable();
+		}
+		return code;
 	}
 
 }

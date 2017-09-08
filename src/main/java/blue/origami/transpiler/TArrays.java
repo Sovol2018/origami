@@ -1,6 +1,7 @@
 package blue.origami.transpiler;
 
 import java.lang.reflect.Array;
+import java.util.function.Predicate;
 
 import blue.origami.transpiler.code.Code;
 import blue.origami.transpiler.type.Ty;
@@ -54,9 +55,27 @@ public class TArrays {
 	public static String[] names(int length) {
 		String[] names = new String[length];
 		for (int c = 0; c < length; c++) {
-			names[c] = String.valueOf((char) c);
+			names[c] = String.valueOf((char) ('a' + c));
 		}
 		return names;
+	}
+
+	public static <T> boolean testSomeTrue(Predicate<T> f, T[] list) {
+		for (T e : list) {
+			if (f.test(e)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public static <T> boolean testAllTrue(Predicate<T> f, T[] list) {
+		for (T e : list) {
+			if (!f.test(e)) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 }

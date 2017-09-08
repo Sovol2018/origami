@@ -8,7 +8,6 @@ import blue.origami.transpiler.TFmt;
 import blue.origami.transpiler.code.ErrorCode;
 import blue.origami.transpiler.type.Ty;
 import blue.origami.transpiler.type.VarDomain;
-import blue.origami.util.ODebug;
 
 public class SyntaxRule extends LoggerRule implements Symbols {
 
@@ -43,15 +42,87 @@ public class SyntaxRule extends LoggerRule implements Symbols {
 		}
 	}
 
-	// public void setDefaultParamType(TEnv env, TType t) {
-	// env.add(OUntypedType.class, t);
+	// Ty[] parseParamTypes(TEnv env, String[] paramNames, Tree<?> params, Ty
+	// defaultType) {
+	// if (params == null) {
+	// return TArrays.emptyTypes;
+	// }
+	// Ty[] p = new Ty[paramNames.length];
+	// if (params.has(_name) && p.length == 1) {
+	// p[0] = this.parseParamType(env, params, paramNames[0], params.get(_type,
+	// null), defaultType);
+	// return p;
+	// }
+	// int i = 0;
+	// for (Tree<?> sub : params) {
+	// p[i] = this.parseParamType(env, sub, paramNames[i], sub.get(_type, null),
+	// defaultType);
+	// i++;
+	// }
+	// return p;
 	// }
 	//
-	// public TType getDefaultParamType(TEnv env) {
-	// return env.get(OUntypedType.class);
+	// Ty parseParamType(TEnv env, Tree<?> param, String name, Tree<?> type, Ty
+	// defaultType) {
+	// Ty resolvedTy = null;
+	// if (type != null) {
+	// resolvedTy = env.parseType(env, type, null);
 	// }
+	// if (resolvedTy == null && name != null) {
+	// if (name.endsWith("?")) {
+	// resolvedTy = Ty.tBool;
+	// } else {
+	// NameHint hint = env.findNameHint(env, name);
+	// if (hint != null) {
+	// resolvedTy = hint.getType();
+	// }
+	// }
+	// }
+	// if (resolvedTy == null) {
+	// if (NameHint.isOneLetterName(name)) {
+	// resolvedTy = Ty.tAnyRef;
+	// }
+	// }
+	// // resolvedTy = this.parseTypeArity(env, resolvedTy, param);
+	// if (resolvedTy == null) {
+	// if (defaultType != null) {
+	// resolvedTy = defaultType;
+	// } else {
+	// throw new ErrorCode(param, TFmt.no_typing_hint__YY0, param.getString());
+	// }
+	// }
+	// return resolvedTy;
+	// }
+	//
+	Ty parseReturnType(TEnv env, Tree<?> type, VarDomain dom) {
+		return this.parseReturnType(env, null, type, dom);
+	}
 
-	public Ty[] parseParamTypes(TEnv env, String[] paramNames, Tree<?> params, VarDomain dom, Ty defaultType) {
+	Ty parseReturnType(TEnv env, String name, Tree<?> type) {
+		return this.parseReturnType(env, name, type, null);
+	}
+
+	private Ty parseReturnType(TEnv env, String name, Tree<?> type, VarDomain dom) {
+		if (type != null) {
+			return env.parseType(env, type, null);
+		}
+		if (name != null) {
+			if (name.endsWith("?")) {
+				return Ty.tBool;
+			}
+		}
+		return VarDomain.newVarTy(dom, "ret");
+	}
+
+	Ty[] parseParamTypes(TEnv env, String[] paramNames, Tree<?> params) {
+		return this.parseParamTypes(env, paramNames, params, null, null);
+	}
+
+	Ty[] parseParamTypes(TEnv env, String[] paramNames, Tree<?> params, VarDomain dom) {
+		return this.parseParamTypes(env, paramNames, params, dom, null);
+	}
+
+	private Ty[] parseParamTypes(TEnv env, String[] paramNames, Tree<?> params, VarDomain dom, Ty defaultType) {
 		if (params == null) {
 			return TArrays.emptyTypes;
 		}
@@ -68,8 +139,7 @@ public class SyntaxRule extends LoggerRule implements Symbols {
 		return p;
 	}
 
-	public Ty parseParamType(TEnv env, Tree<?> param, String name, Tree<?> type, VarDomain dom, Ty defaultType) {
-		// Symbol paramTag = param.getTag();
+	Ty parseParamType(TEnv env, Tree<?> param, String name, Tree<?> type, VarDomain dom, Ty defaultType) {
 		Ty ty = null;
 		if (type != null) {
 			ty = env.parseType(env, type, null);
@@ -81,20 +151,15 @@ public class SyntaxRule extends LoggerRule implements Symbols {
 				NameHint hint = env.findNameHint(env, name);
 				if (hint != null) {
 					ty = hint.getType();
-					// if (hint.useLocal()) {
-					// TLog log = this.reportNotice(null, param,
-					// TFmt.YY0_have_a_YY1_type, name, hint.getType());
-					// env.reportLog(log);
-					// }
 				}
 			}
 		}
 		if (ty == null) {
 			if (NameHint.isOneLetterName(name)) {
-				ty = dom.newVarType(name);
+				ty = VarDomain.newVarTy(dom, name);
 			}
 		}
-		ty = this.parseTypeArity(env, ty, param);
+		// ty = this.parseTypeArity(env, ty, param);
 		if (ty == null) {
 			if (defaultType != null) {
 				ty = defaultType;
@@ -104,24 +169,24 @@ public class SyntaxRule extends LoggerRule implements Symbols {
 		}
 		return ty;
 	}
-
-	// name
-	public Ty parseTypeArity(TEnv env, Ty ty, Tree<?> param) {
-		if (param.has(_suffix)) {
-			String suffix = param.getStringAt(_suffix, "");
-			// if (ty != null && suffix.equals("?")) {
-			// ty = TType.tOption(ty);
-			// ODebug.trace("arity %s", ty);
-			// return ty;
-			// }
-			if (ty != null && suffix.equals("*")) {
-				ty = Ty.tImList(ty);
-				ODebug.trace("arity %s", ty);
-				return ty;
-			}
-		}
-		return ty;
-	}
+	//
+	// // name
+	// public Ty parseTypeArity(TEnv env, Ty ty, Tree<?> param) {
+	// if (param.has(_suffix)) {
+	// String suffix = param.getStringAt(_suffix, "");
+	// // if (ty != null && suffix.equals("?")) {
+	// // ty = TType.tOption(ty);
+	// // ODebug.trace("arity %s", ty);
+	// // return ty;
+	// // }
+	// if (ty != null && suffix.equals("*")) {
+	// ty = Ty.tImList(ty);
+	// ODebug.trace("arity %s", ty);
+	// return ty;
+	// }
+	// }
+	// return ty;
+	// }
 
 	public Ty[] parseTypes(TEnv env, Tree<?> types) {
 		if (types == null) {

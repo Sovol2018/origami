@@ -28,6 +28,7 @@ import blue.origami.transpiler.rule.SourceUnit;
 import blue.origami.transpiler.rule.UnaryExpr;
 import blue.origami.transpiler.type.Ty;
 import blue.origami.transpiler.type.VarDomain;
+import blue.origami.transpiler.type.VarTy;
 import blue.origami.util.CodeTree;
 import blue.origami.util.OConsole;
 import blue.origami.util.ODebug;
@@ -267,7 +268,9 @@ public class Transpiler extends TEnv {
 
 	public void addFunction(TEnv env, String name, TFunction f) {
 		this.add(name, f);
-		this.generator.addFunction(name, f);
+		if (f.isPublic()) {
+			this.generator.addFunction(name, f);
+		}
 	}
 
 	public void addExample(String name, Tree<?> tree) {
@@ -298,7 +301,7 @@ public class Transpiler extends TEnv {
 	public Template defineFunction(String name, String[] paramNames, Ty[] paramTypes, Ty returnType, Code body) {
 		final TEnv env = this.newEnv();
 		final String lname = this.generator.safeName(name);
-		final CodeTemplate tp = this.generator.newFuncTemplate(env, lname, returnType, paramTypes);
+		final CodeTemplate tp = this.generator.newFuncTemplate(env, name, lname, returnType, paramTypes);
 		this.add(name, tp);
 		FunctionContext fcx = new FunctionContext();
 		env.add(FunctionContext.class, fcx);
@@ -311,12 +314,12 @@ public class Transpiler extends TEnv {
 		return tp;
 	}
 
-	public Template defineFunction(boolean isPublic, String name, VarDomain dom, String[] paramNames, Ty[] paramTypes,
+	public Template defineFunction0(boolean isPublic, String name, VarDomain dom, String[] paramNames, Ty[] paramTypes,
 			Ty returnType, Tree<?> body) {
-		final TEnv env = this.newEnv();
 		final String lname = isPublic ? name : this.getLocalName(name);
-		final CodeTemplate tp = this.generator.newFuncTemplate(env, lname, returnType, paramTypes);
+		final CodeTemplate tp = this.generator.newFuncTemplate(this, name, lname, returnType, paramTypes);
 		this.add(name, tp);
+		final TEnv env = this.newEnv();
 		FunctionContext fcx = new FunctionContext();
 		env.add(FunctionContext.class, fcx);
 		for (int i = 0; i < paramNames.length; i++) {
@@ -324,20 +327,54 @@ public class Transpiler extends TEnv {
 		}
 		Code code0 = env.parseCode(env, body);
 		Code code = env.catchCode(() -> code0.asType(env, returnType));
-		// int untyped = code.countUntyped(0);
-		// if (untyped > 0) {
-		// ODebug.trace("untyped node=%d", untyped);
-		// }
-		ODebug.trace("Typed Error=%s %s", code.hasErrorCode(), tp);
-		if (dom != null) {
-			dom.check();
-		}
+		ODebug.trace("Typed Error=%s %s", code.hasSome(c -> c.isError()), tp);
 		tp.nomAll();
 		this.verbose("Typed", () -> {
 			OConsole.println("%s %s", lname, tp.getFuncType());
 		});
 		// assert (!returnType.isUntyped());
 		this.generator.defineFunction(this, isPublic, lname, paramNames, tp.getParamTypes(), tp.getReturnType(), code);
+		return tp;
+	}
+
+	public Template defineFunction(boolean isPublic, String name, int seq, String[] paramNames, Ty[] paramTypes,
+			Ty returnType, Tree<?> body) {
+		final Ty ret = (returnType.isAnyRef()) ? new VarTy("ret", Integer.MAX_VALUE) : returnType;
+		final String lname = isPublic ? name : this.getLocalName(name);
+		final CodeTemplate tp = this.generator.newFuncTemplate(this, name, lname, ret, paramTypes);
+		this.add(name, tp);
+
+		final TEnv env = this.newEnv();
+		FunctionContext fcx = new FunctionContext();
+		env.add(FunctionContext.class, fcx);
+		for (int i = 0; i < paramNames.length; i++) {
+			env.add(paramNames[i], fcx.newVariable(paramNames[i], paramTypes[i]));
+		}
+		Code code0 = env.parseCode(env, body);
+		Code code = env.catchCode(() -> code0.asType(env, ret));
+		tp.asError(code.hasSome(c -> c.isError()));
+		if (ret != returnType) {
+			ret.toImmutable();
+		}
+		ODebug.trace("Typed Error=%s %s", code.hasSome(c -> c.isError()), tp);
+		tp.nomAll();
+		this.verbose("Typed", () -> {
+			OConsole.println("%s %s", lname, tp.getFuncType());
+		});
+		this.generator.defineFunction(this, isPublic, lname, paramNames, tp.getParamTypes(), tp.getReturnType(), code);
+		return tp;
+	}
+
+	public Template defineFunction(boolean isPublic, String name, int seq, String[] paramNames, Ty[] paramTypes,
+			Ty returnType, Code body) {
+		final String lname = isPublic ? name : this.getLocalName(name);
+		final CodeTemplate tp = this.generator.newFuncTemplate(this, name, lname, returnType, paramTypes);
+		this.add(name, tp);
+		tp.asError(body.hasSome(c -> c.isError()));
+		this.verbose("Typed", () -> {
+			OConsole.println("%s %s", lname, tp.getFuncType());
+		});
+		this.generator.defineFunction(this, isPublic, lname, paramNames, tp.getParamTypes(), tp.getReturnType(), body);
 		return tp;
 	}
 

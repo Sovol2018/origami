@@ -11,11 +11,11 @@ public class CastCode extends Code1 implements CallCode {
 	public CastCode(Ty ret, Template tp, Code inner) {
 		super(ret, inner);
 		this.setTemplate(tp);
+		// ODebug.trace("CAST *****(%s => %s) %s", inner.getType(), ret, inner);
 	}
 
 	public CastCode(Ty ret, Code inner) {
-		super(ret, inner);
-		this.setTemplate(null);
+		this(ret, null, inner);
 	}
 
 	private Template tp;
@@ -32,7 +32,11 @@ public class CastCode extends Code1 implements CallCode {
 	@Override
 	public Code asType(TEnv env, Ty ret) {
 		if (this.tp == null) {
-			return this.getInner().asType(env, this.getType()).castType(env, ret);
+			Code in = this.getInner().asType(env, this.getType());
+			// ODebug.trace("casting %s %s %s => %s => %s",
+			// in.getClass().getSimpleName(), in, in.getType(),
+			// this.getType(), ret);
+			return in.castType(env, ret);
 		}
 		return this.castType(env, ret);
 	}
@@ -61,7 +65,7 @@ public class CastCode extends Code1 implements CallCode {
 
 	public static class TConvTemplate extends CodeTemplate {
 
-		public static final TConvTemplate Stupid = new TConvTemplate("", Ty.tVoid, Ty.tVoid, STUPID, "%s");
+		public static final TConvTemplate Stupid = new TConvTemplate("stupid", Ty.tVoid, Ty.tVoid, STUPID, "%s");
 
 		public TConvTemplate(String name, Ty fromType, Ty returnType, int mapCost, String template) {
 			super(name, returnType, new Ty[] { fromType }, template);
@@ -75,15 +79,6 @@ public class CastCode extends Code1 implements CallCode {
 		public MutableCode(Code inner) {
 			super(null, inner);
 		}
-
-		// @Override
-		// public Code asType(TEnv env, Ty ret) {
-		// if (this.isUntyped()) {
-		// Ty ty = this.asTypeAt(env, 0, ret);
-		// Ty mut = ty.toMutable();
-		// }
-		// return ty;
-		// }
 
 	}
 

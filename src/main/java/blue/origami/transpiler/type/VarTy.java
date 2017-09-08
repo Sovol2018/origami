@@ -1,22 +1,20 @@
 package blue.origami.transpiler.type;
 
-import blue.origami.nez.ast.Tree;
 import blue.origami.transpiler.NameHint;
 import blue.origami.util.ODebug;
 import blue.origami.util.StringCombinator;
 
 public class VarTy extends Ty {
-	private static int seq = 0;
+	private static int seq = 27;
 	private String varName;
 	Ty innerTy;
 	final int id;
-	private Tree<?> s;
 
-	public VarTy(String varName, Tree<?> s) {
+	public VarTy(String varName, int id) {
 		this.varName = varName;
 		this.innerTy = null;
-		this.id = seq++;
-		this.s = s;
+		this.id = id < 0 ? seq++ : id;
+		assert (seq > 0);
 	}
 
 	public boolean isParameter() {
@@ -24,13 +22,20 @@ public class VarTy extends Ty {
 	}
 
 	public String getName() {
-		return this.varName == null ? "_" + this.id
-				: this.varName /* + this.id */;
+		if (this.varName == null) {
+			return "_" + this.id;
+		}
+		return this.id < 27 ? this.varName : this.varName + "#" + this.id;
 	}
 
 	@Override
-	public Ty type() {
-		return this.innerTy == null ? this : this.innerTy.type();
+	public boolean isNonMemo() {
+		return this.id > 26;
+	}
+
+	@Override
+	public Ty real() {
+		return this.innerTy == null ? this : this.innerTy.real();
 	}
 
 	@Override
@@ -38,51 +43,50 @@ public class VarTy extends Ty {
 		return this.innerTy == null ? this : this.innerTy.getInnerTy();
 	}
 
+	@Override
+	public Ty toImmutable() {
+		if (this.innerTy != null) {
+			this.innerTy = this.innerTy.toImmutable();
+		}
+		return this;
+	}
+
 	public void rename(String name) {
 		this.varName = name;
 	}
 
 	@Override
-	public boolean isVarRef() {
-		return this.innerTy == null || this.innerTy.isVarRef();
-	}
-
-	@Override
 	public boolean hasVar() {
-		return this.innerTy == null || this.innerTy.hasVar();
+		return this.isVar() || this.innerTy == null || this.innerTy.hasVar();
 	}
 
 	@Override
-	public Ty dupVarType(VarDomain dom) {
-		return this.innerTy == null ? VarDomain.newVarType(dom, this.varName) : this.innerTy.dupVarType(dom);
+	public Ty dupVar(VarDomain dom) {
+		return this.innerTy == null ? VarDomain.newVarTy(dom, this.getName()) : this.innerTy.dupVar(dom);
 	}
 
 	@Override
-	public boolean isDynamic() {
-		return this.innerTy == null ? true : this.innerTy.isDynamic();
-	}
-
-	@Override
-	public Ty staticTy() {
-		return this.innerTy == null ? this : this.innerTy.staticTy();
+	public Ty finalTy() {
+		return this.innerTy == null ? this : this.innerTy.finalTy();
 	}
 
 	private boolean lt(VarTy vt) {
-		return this.id < vt.id;
+		return this.id > vt.id;
 	}
 
 	@Override
 	public boolean acceptTy(boolean sub, Ty codeTy, VarLogger logs) {
+		// ODebug.trace("%s %s", this, codeTy);
 		if (this.innerTy != null) {
 			return this.innerTy.acceptTy(sub, codeTy, logs);
 		}
-		if (codeTy instanceof VarTy) {
-			VarTy vt = ((VarTy) codeTy);
-			if (vt.innerTy != null) {
-				return this.acceptTy(sub, vt.innerTy, logs);
+		if (codeTy.isVar()) {
+			VarTy varTy = (VarTy) codeTy.real();
+			if (varTy.innerTy != null) {
+				return this.acceptTy(sub, varTy.innerTy, logs);
 			}
-			if (this.id != vt.id) {
-				return this.lt(vt) ? logs.update(vt, this) : logs.update(this, vt);
+			if (this.id != varTy.id) {
+				return this.lt(varTy) ? logs.update(varTy, this) : logs.update(this, varTy);
 			}
 			return true;
 		}
@@ -97,7 +101,11 @@ public class VarTy extends Ty {
 		if (this.innerTy == null) {
 			sb.append(this.getName());
 		} else {
+			sb.append("|");
+			sb.append(this.getName());
+			sb.append("=");
 			StringCombinator.append(sb, this.innerTy);
+			sb.append("|");
 		}
 	}
 

@@ -1,6 +1,7 @@
 package blue.origami.transpiler.code;
 
 import java.util.Iterator;
+import java.util.function.Predicate;
 
 import blue.origami.nez.ast.Tree;
 import blue.origami.transpiler.TArrays;
@@ -11,7 +12,6 @@ import blue.origami.transpiler.Template;
 import blue.origami.transpiler.code.CastCode.TConvTemplate;
 import blue.origami.transpiler.type.DataTy;
 import blue.origami.transpiler.type.Ty;
-import blue.origami.util.ODebug;
 import blue.origami.util.StringCombinator;
 
 public interface Code extends CodeAPI, Iterable<Code>, StringCombinator {
@@ -81,47 +81,48 @@ interface CodeAPI {
 		return Ty.isUntyped(self().getType());
 	}
 
-	public default boolean isDataType() {
-		return self().getType() instanceof DataTy;
+	public default boolean isAbstract() {
+		return false;
 	}
 
-	public default boolean hasErrorCode() {
-		if (this instanceof ErrorCode) {
+	public default boolean isError() {
+		return self() instanceof ErrorCode;
+	}
+
+	public default boolean hasSome(Predicate<Code> f) {
+		if (f.test(self())) {
 			return true;
 		}
 		for (Code c : self()) {
-			if (c.hasErrorCode()) {
+			if (c.hasSome(f)) {
 				return true;
 			}
 		}
 		return false;
 	}
 
-	public default int countUntyped(int count) {
-		if (this.isUntyped()) {
-			count++;
-		}
-		for (Code c : self()) {
-			count = c.countUntyped(count);
-		}
-		return count;
+	public default boolean isDataType() {
+		return self().getType() instanceof DataTy;
 	}
 
 	public default Code asType(TEnv env, Ty ret) {
 		return castType(env, ret);
 	}
 
-	public default Code castType(TEnv env, Ty ret) {
+	public default Code castType(TEnv env, Ty ret0) {
 		Code self = self();
-		Ty f = self.getType();
-		if (/* self.isUntyped()|| */ ret.accept(self)) {
+		if (ret0.accept(self)) {
+			// ODebug.trace("unnecessary cast %s => %s", f, ret);
 			return self;
 		}
-		Template tt = env.findTypeMap(env, f, ret);
-		if (tt == TConvTemplate.Stupid) {
+		Ty f = self.getType();
+		Ty ret = ret0;
+		Template tp = env.findTypeMap(env, f, ret);
+		if (tp == TConvTemplate.Stupid) {
+			new Exception().printStackTrace();
 			return new ErrorCode(self, TFmt.type_error_YY0_YY1, f, ret);
 		}
-		return new CastCode(ret, tt, self);
+		return new CastCode(ret, tp, self);
 	}
 
 	public default Code bind(Ty ret) {
@@ -130,14 +131,6 @@ interface CodeAPI {
 
 	public default Ty guessType() {
 		return self().getType();
-	}
-
-	public default Code goingOut() {
-		Ty t = self().getType();
-		if (t instanceof DataTy) {
-			// t.asLocal();
-		}
-		return self();
 	}
 
 	public default boolean hasReturn() {
@@ -159,8 +152,8 @@ interface CodeAPI {
 }
 
 abstract class CommonCode implements Code {
-	Tree<?> at;
-	Ty typed;
+	private Tree<?> at;
+	private Ty typed;
 
 	protected CommonCode(Ty t) {
 		this.at = null;
@@ -227,13 +220,6 @@ abstract class CommonCode implements Code {
 				return Ty.tVoid;
 			}
 			return a[a.length - 1].getType();
-		}
-		if (this.typed != null) {
-			Ty ty = this.typed.staticTy();
-			if (ty != this.typed) {
-				ODebug.trace("nomTy %s --> %s", this.typed, ty);
-				this.typed = ty;
-			}
 		}
 		return this.typed;
 	}
