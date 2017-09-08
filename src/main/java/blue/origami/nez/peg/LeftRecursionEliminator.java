@@ -83,7 +83,6 @@ public class LeftRecursionEliminator extends ExpressionVisitor<Boolean, LeftRecu
 			// temporarily throw NullPointerException if production named "name" is
 			// undefined
 			Expression e = this.grammar.getProduction(name).getExpression();
-
 			Boolean isLR = e.visit(this, new LREContext(name, true));
 			if (isLR) {
 				String newNTName = this.eliminateLR(name);
@@ -109,10 +108,11 @@ public class LeftRecursionEliminator extends ExpressionVisitor<Boolean, LeftRecu
 			// sub-exprs )
 			Expression firstRecursive = recursiveExprs.get(0);
 			List<Expression> subRecursiveExprs = recursiveExprs.subList(1, recursiveExprs.size());
+			https: // github.com/kkuramitsu/origami/pull/42
 			// If true replaced in only left-recursive-nonterminal
 			// If false replaced all non-terminal
-			// firstRecursive.visit(this, new LREContext(name, true, newName));
-			firstRecursive.visit(this, new LREContext(name, false, newName));
+			firstRecursive.visit(this, new LREContext(name, true, newName));
+			// firstRecursive.visit(this, new LREContext(name, false, newName));
 			subRecursiveExprs.forEach(e -> e.visit(this, new LREContext(name, false, newName)));
 
 			// redefine original expression ( converted first-recursive and not-recursives )
@@ -304,7 +304,9 @@ public class LeftRecursionEliminator extends ExpressionVisitor<Boolean, LeftRecu
 	public Boolean visitAnd(PAnd e, LREContext context) {
 		// TODO Auto-generated method stub
 		this.debug("visitAnd : " + e.toString());
-		return e.get(0).visit(this, context);
+		Boolean res = e.get(0).visit(this, context);
+		e.set(0, this.updateExpression(e.get(0), context));
+		return res;
 	}
 
 	@Override
