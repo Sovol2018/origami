@@ -17,12 +17,11 @@ import blue.origami.parser.peg.Grammar;
 public class Okourin extends Main {
 	@Override
 	public void exec(OOption options) throws Throwable {
-		System.out.println("Hello, world");
 		Grammar g = this.getGrammar(options, "chibi.opeg");
 
 		StreamCombinator combinator = new StreamCombinator(g);
-		String res = combinator.of("a").take("4").map("\\x x + 1").filter("\\x x<3").take("5").filter("\\x x<5")
-				.forEach("\\x println(x + 1)");
+		String res = combinator.of("ary").take("100").filter("\\x x<5").map("\\x x+1").take("10")
+				.reduce("\\x \\y x + y", "10");
 		System.out.println(res);
 	}
 
@@ -44,6 +43,8 @@ public class Okourin extends Main {
 		private List<CommonTree> _values;
 		private List<List<CommonTree>> _conditions;
 		private List<Set<String>> _limits;
+
+		private StringBuilderWrapper _builder;
 
 		StreamCombinator(Grammar g, String prefix, String loopVar, String valueVar, String constVar, String resVar) {
 			this._g = g;
@@ -95,9 +96,9 @@ public class Okourin extends Main {
 				throw new IllegalArgumentException("Bound Variables ara too much : " + vars.toString());
 			}
 
-			final String varName = vars.iterator().next();
+			final CommonTree boundVar = this.parseTree(vars.iterator().next(), this.NT_IDENTIFIER);
 			final CommonTree oldTree = this._values.get(this._values.size() - 1);
-			final CommonTree newTree = this.embedTree(body, varName, oldTree);
+			final CommonTree newTree = this.embedTree(body, boundVar, oldTree);
 			this._values.set(this._values.size() - 1, newTree);
 
 			this._isFilterContinue = false;
@@ -116,18 +117,20 @@ public class Okourin extends Main {
 			}
 
 			final int level = this._isFilterContinue ? this._values.size() - 2 : this._values.size() - 1;
-			final String varName = vars.iterator().next();
+			final String boundVarName = vars.iterator().next();
+			final CommonTree boundVar = this.parseTree(boundVarName, this.NT_IDENTIFIER);
 			final String tempVarName = this.getValueVar(String.valueOf(level));
 			final CommonTree tempVar = this.parseTree(tempVarName, this.NT_IDENTIFIER);
 
 			if (!this._isFilterContinue) {
+				CommonTree nextVar = this.parseTree(this.getValueVar(String.valueOf(level - 1)), this.NT_IDENTIFIER);
 				CommonTree oldTree = this._values.get(level);
-				oldTree = this.embedTree(oldTree, this.getValueVar(String.valueOf(level - 1)), tempVar);
+				oldTree = this.embedTree(oldTree, nextVar, tempVar);
 				this._values.set(level, oldTree);
 
 				this._values.add(tempVar);
 			}
-			final CommonTree cond = this.embedTree(body, varName, tempVar);
+			final CommonTree cond = this.embedTree(body, boundVar, tempVar);
 			this.setCond(level, body);
 
 			this._isFilterContinue = true;
@@ -152,58 +155,99 @@ public class Okourin extends Main {
 				throw new IllegalArgumentException("Parse Error ( Not Lambda and Not Identifier ) : " + expr);
 			}
 
-			final int depth = this._values.size();
+			int depth = this._values.size();
 
-			StringBuilder sb = new StringBuilder();
-			sb.append(this.getLoopLimit());
-			String loopVar = this.getLoopVar("0");
-			sb.append(this.getForLoop(loopVar + " = 0", loopVar + " < " + this.getConstVar("0"), "++" + loopVar));
-			sb.append("{\n");
+			this._builder = new StringBuilderWrapper();
 
-			sb.append(this.getBody());
+			this.genPre();
+			this.genBody();
 
-			String tag = tree.getTag().toString();
+			final String tag = tree.getTag().toString();
+			final CommonTree lastValue = this._values.get(this._values.size() - 1);
+
 			if (tag.equals("FuncExpr")) {
 				final HashSet<String> boundVars = this.getLambdaArgs(tree);
-				final String bound = boundVars.iterator().next();
+				if (boundVars.size() != 1) {
+					throw new IllegalArgumentException("Too Much Bound Vars : " + expr);
+				}
+				final String boundVarName = boundVars.iterator().next();
+				final CommonTree boundVar = this.parseTree(boundVarName, this.NT_IDENTIFIER);
+				tree = this.embedTree(tree.get(1), boundVar, lastValue);
 
-				final String lastVarName = this.getValueVar(String.valueOf(depth - 2));
-				final CommonTree lastVar = this.parseTree(lastVarName, this.NT_IDENTIFIER);
-				tree = this.embedTree(tree.get(1), bound, lastVar);
-				sb.append(this.evalTree(tree));
+				final String forEachBody = this.evalTree(tree);
+				this._builder.appendLineWithTabs(depth, forEachBody);
 			} else {
-				sb.append(expr);
-				sb.append("(");
-				sb.append(this.getValueVar(String.valueOf(depth - 2)));
-				sb.append(")");
+				final String funcCall = expr + this.evalTree(lastValue) + ";";
+				this._builder.appendLineWithTabs(depth, funcCall);
 			}
-			sb.append(";");
 
-			for (int i = 0; i < depth; ++i) {
-				sb.append("\n}");
+			while (depth-- > 0) {
+				this._builder.appendLineWithTabs(depth, "}");
 			}
-			return sb.toString();
+
+			return this._builder.toString();
 		}
 
 		public String reduce(final String lambda, final String init) {
-			String pre = this.getLoopLimit();
-			pre += this.getResVar("0") + " = " + init + "\n";
-			return pre;
+			final CommonTree tree = this.parseTree(lambda, this.NT_LAMBDA);
+			if (tree == null) {
+				throw new IllegalArgumentException("Parse Error ( Not Lambda ) : " + lambda);
+			}
+
+			int depth = this._values.size();
+
+			this._builder = new StringBuilderWrapper();
+
+			final String r0 = this.getResVar("0");
+			final String initResVar = r0 + " = " + init + ";";
+			this._builder.appendLineWithTabs(0, initResVar);
+
+			this.genPre();
+			this.genBody();
+
+			final HashSet<String> boundVars = this.getLambdaArgs(tree);
+			CommonTree body = this.getLambdaBody(tree);
+			if (boundVars.size() != 2) {
+				throw new IllegalArgumentException("Need 2 bound variabls: " + lambda);
+			}
+
+			Iterator<String> ite = boundVars.iterator();
+			final CommonTree firstVar = this.parseTree(ite.next(), this.NT_IDENTIFIER);
+			final CommonTree secondVar = this.parseTree(ite.next(), this.NT_IDENTIFIER);
+
+			final CommonTree resVar = this.parseTree(r0, this.NT_IDENTIFIER);
+			final CommonTree lastValue = this._values.get(this._values.size() - 1);
+
+			body = this.embedTree(body, firstVar, resVar);
+			body = this.embedTree(body, secondVar, lastValue);
+
+			final String updateResVar = r0 + " = " + this.removeOuterBracket(this.evalTree(body)) + ";";
+			this._builder.appendLineWithTabs(depth, updateResVar);
+
+			while (depth-- > 0) {
+				this._builder.appendLineWithTabs(depth, "}");
+			}
+
+			return this._builder.toString();
 		}
 
-		private String getLoopLimit() {
-			String limVar = this.getConstVar("0");
+		private String getLoopLimit(String varName) {
 			Iterator<String> ite = this._limits.get(0).iterator();
 			String limVal = ite.next();
 			while (ite.hasNext()) {
 				limVal = this.getMinFunc(limVal, ite.next());
 			}
-			return limVar + " = " + limVal + "\n";
+			return varName + " = " + limVal + ";";
 		}
 
-		private String getBody() {
-			StringBuilder sb = new StringBuilder();
+		private void genPre() {
+			final String c0 = this.getConstVar("0");
+			final String i0 = this.getLoopVar("0");
+			this._builder.appendLineWithTabs(0, this.getLoopLimit(c0));
+			this._builder.appendLineWithTabs(0, this.getForLoop(i0, "0", c0) + "{");
+		}
 
+		private void genBody() {
 			final int depth = this._values.size() - 1;
 			this.setCond(depth, null);
 			this.setLimit(depth + 1, null);
@@ -215,18 +259,18 @@ public class Okourin extends Main {
 				String value = this.removeOuterBracket(this.evalTree(valueTree));
 				String varName = this.getValueVar(String.valueOf(i));
 
-				sb.append(varName);
-				sb.append(" = ");
-				sb.append(value);
-				sb.append(";\n");
+				// assign
+				final String assignExpr = varName + " = " + value + ";";
+				this._builder.appendLineWithTabs(i + 1, assignExpr);
 
-				if (termination.length() > 0) {
-					sb.append(termination);
-					termination = "";
+				// termination
+				if (termination != null && termination.length() > 0) {
+					this._builder.appendLineWithTabs(i + 1, termination);
+					termination = null;
 				}
 
-				// Limit (take)
-				Set<String> nextLimit = this._limits.get(i + 1);
+				// next termination
+				final Set<String> nextLimit = this._limits.get(i + 1);
 				if (!nextLimit.isEmpty()) {
 					Iterator<String> ite = nextLimit.iterator();
 					String limVal = ite.next();
@@ -234,27 +278,29 @@ public class Okourin extends Main {
 						limVal = this.getMinFunc(limVal, ite.next());
 					}
 					final String limVarName = this.getLoopVar(String.valueOf(k++));
-					sb.append(limVarName);
-					sb.append(" = ");
-					sb.append(limVal);
-					sb.append(";\n");
 
-					String limExpr = limVarName + " > 0";
-					CommonTree limCond = this.parseTree(limExpr, this.NT_EXPRESSION);
-					this.setCond(i, limCond);
-					termination += limVarName + "--;\n";
+					final String nextControlInit = limVarName + " = " + limVal + ";";
+					this._builder.appendLineWithTabs(i + 1, nextControlInit);
+
+					final String nextLimitExpr = limVarName + " > 0";
+					CommonTree nextLimitCond = this.parseTree(nextLimitExpr, this.NT_EXPRESSION);
+					this.setCond(i, nextLimitCond);
+
+					termination += limVarName + "--;";
 				}
 
-				List<CommonTree> conds = this._conditions.get(i);
+				// if
+				final List<CommonTree> conds = this._conditions.get(i);
 				if (conds != null && conds.size() > 0) {
 					String comb = this.getConditionCombinate(conds);
-					sb.append("if( ");
-					sb.append(comb);
-					sb.append(" ){\n");
+					final String ifexpr = "if( " + comb + " ){";
+					this._builder.appendLineWithTabs(i + 1, ifexpr);
 				}
 			}
-
-			return sb.toString();
+			// termination
+			if (termination != null && termination.length() > 0) {
+				this._builder.appendLineWithTabs(depth + 1, termination);
+			}
 		}
 
 		// Utility
@@ -296,7 +342,28 @@ public class Okourin extends Main {
 			return null;
 		}
 
-		private CommonTree embedTree(final CommonTree parent, final String name, final CommonTree child) {
+		// private CommonTree embedTree(final CommonTree parent, final String name,
+		// final CommonTree child) {
+		// Deque<CommonTree> st = new ArrayDeque();
+		// st.addFirst(parent);
+		//
+		// while (!st.isEmpty()) {
+		// final CommonTree tree = st.removeFirst();
+		//
+		// for (int i = 0; i < tree.size(); ++i) {
+		// CommonTree sub = tree.get(i);
+		// if (sub.getTag() != null && sub.getTag().toString().equals("NameExpr")
+		// && sub.getString().equals(name)) {
+		// tree.set(i, child);
+		// } else {
+		// st.addFirst(sub);
+		// }
+		// }
+		// }
+		// return parent;
+		// }
+
+		private CommonTree embedTree(final CommonTree parent, final CommonTree from, final CommonTree to) {
 			Deque<CommonTree> st = new ArrayDeque();
 			st.addFirst(parent);
 
@@ -305,9 +372,8 @@ public class Okourin extends Main {
 
 				for (int i = 0; i < tree.size(); ++i) {
 					CommonTree sub = tree.get(i);
-					if (sub.getTag() != null && sub.getTag().toString().equals("NameExpr")
-							&& sub.getString().equals(name)) {
-						tree.set(i, child);
+					if (sub.getTag() == from.getTag() && sub.getString().equals(from.getString())) {
+						tree.set(i, to);
 					} else {
 						st.addFirst(sub);
 					}
@@ -404,8 +470,8 @@ public class Okourin extends Main {
 			return String.format("std::min(%s,%s)", l, r);
 		}
 
-		private String getForLoop(String pre, String cond, String inc) {
-			return String.format("for( %s; %s; %s )", pre, cond, inc);
+		private String getForLoop(String var, String init, String limit) {
+			return String.format("for( %s = %s; %s < %s; %s++ )", var, init, var, limit, var);
 		}
 
 		private String getArrayAccess(String ary, String var) {
@@ -426,5 +492,37 @@ public class Okourin extends Main {
 			}
 			return str;
 		}
+	}
+
+	public class StringBuilderWrapper {
+		private StringBuilder _builder;
+		private final String _EOL;
+
+		StringBuilderWrapper() {
+			this._builder = new StringBuilder();
+			this._EOL = System.getProperty("line.separator");
+		}
+
+		@Override
+		public String toString() {
+			return this._builder.toString();
+		}
+
+		public void append(Object obj) {
+			this._builder.append(obj.toString());
+		}
+
+		public void appendLine(Object obj) {
+			this.append(obj);
+			this._builder.append(this._EOL);
+		}
+
+		public void appendLineWithTabs(int n, Object obj) {
+			while (n-- > 0) {
+				this._builder.append("\t");
+			}
+			this.appendLine(obj);
+		}
+
 	}
 }
